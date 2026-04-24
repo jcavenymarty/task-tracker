@@ -1,11 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
-// Firebase will be loaded only in browser (avoids Vercel/Vite build issues)
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
 
-let app;
-let db;
-
-// Your web app's Firebase configuration
+// Your Firebase config
 const firebaseConfig = {
   apiKey: "AIzaSyD79CSOeBjT0uzXjhwOnKKvva_oHJIecTE",
   authDomain: "jase-calendar.firebaseapp.com",
@@ -15,6 +13,10 @@ const firebaseConfig = {
   appId: "1:495093652036:web:9b34dd25b560f84600fa11",
   measurementId: "G-SD9GHJMBDD"
 };
+
+// Initialize Firebase (safe for Vercel + Vite)
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 const USER_ID = "default-user";
 
@@ -31,61 +33,51 @@ export default function TaskTracker() {
 
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
-  const [ready, setReady] = useState(false);
 
-  // Init Firebase only in browser
+  // prevents saving before initial load
+  const initialized = useRef(false);
+
+  // 🔄 Load once on mount
   useEffect(() => {
-    const init = async () => {
-      const { initializeApp } = await import("firebase/app");
-      const { getFirestore, doc, getDoc, setDoc } = await import("firebase/firestore");
-
-      app = initializeApp(firebaseConfig);
-      db = getFirestore(app);
-
-      // expose helpers on window scope for later use
-      window.__firebase = { doc, getDoc, setDoc };
-
-      setReady(true);
-    };
-
-    init();
-  }, []);
-
-  // Load from Firebase
-  useEffect(() => {
-    if (!ready) return;
-
     const loadData = async () => {
-      const { doc, getDoc } = window.__firebase;
-
       const ref = doc(db, "tasks", USER_ID);
       const snap = await getDoc(ref);
 
-      if (snap.exists()) setData(snap.data());
+      if (snap.exists()) {
+        setData(snap.data());
+      }
+
       setLoading(false);
+      initialized.current = true;
     };
 
     loadData();
-  }, [ready]);
+  }, []);
 
-  // Save to Firebase
+  // 💾 Save whenever data changes (after initial load)
   useEffect(() => {
-    if (!ready || loading) return;
+    if (!initialized.current) return;
 
-    const save = async () => {
-      const { doc, setDoc } = window.__firebase;
-
-      await setDoc(doc(db, "tasks", USER_ID), data);
+    const saveData = async () => {
+      const ref = doc(db, "tasks", USER_ID);
+      await setDoc(ref, data);
     };
 
-    save();
-  }, [data, ready, loading]);
+    saveData();
+  }, [data]);
 
   // Ensure today's tasks exist
   useEffect(() => {
     if (!data[today]) {
-      const newTasks = DEFAULT_TASKS.map((t) => ({ text: t, done: false }));
-      setData((prev) => ({ ...prev, [today]: newTasks }));
+      const newTasks = DEFAULT_TASKS.map((t) => ({
+        text: t,
+        done: false
+      }));
+
+      setData((prev) => ({
+        ...prev,
+        [today]: newTasks
+      }));
     }
   }, [data, today]);
 
@@ -95,6 +87,7 @@ export default function TaskTracker() {
     const updated = todayTasks.map((t, i) =>
       i === index ? { ...t, done: !t.done } : t
     );
+
     setData({ ...data, [today]: updated });
   };
 
@@ -107,7 +100,9 @@ export default function TaskTracker() {
 
     while (true) {
       const key = d.toISOString().split("T")[0];
+
       if (!isDayComplete(data[key])) break;
+
       streak++;
       d.setDate(d.getDate() - 1);
     }
@@ -133,13 +128,14 @@ export default function TaskTracker() {
 
   const days = getLast30Days();
 
-  if (!ready || loading) return <div style={{ padding: 20 }}>Loading...</div>;
+  if (loading) return <div style={{ padding: 20 }}>Loading...</div>;
 
   return (
     <div style={{ padding: 20, maxWidth: 500, margin: "auto" }}>
       <h1>Daily Habit Tracker</h1>
 
       <h2>Today</h2>
+
       {todayTasks.map((task, i) => (
         <div
           key={i}
@@ -168,6 +164,7 @@ export default function TaskTracker() {
       <h2>🔥 Streak: {streak} days</h2>
 
       <h2>Last 30 Days</h2>
+
       <div
         style={{
           display: "grid",
@@ -177,6 +174,7 @@ export default function TaskTracker() {
       >
         {days.map((day) => {
           const complete = isDayComplete(data[day]);
+
           return (
             <div
               key={day}
