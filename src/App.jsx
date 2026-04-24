@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 
-// 🔥 Firebase setup (replace with your config)
-import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
+// Firebase will be loaded only in browser (avoids Vercel/Vite build issues)
+
+let app;
+let db;
 
 // Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyD79CSOeBjT0uzXjhwOnKKvva_oHJIecTE",
   authDomain: "jase-calendar.firebaseapp.com",
@@ -16,39 +16,70 @@ const firebaseConfig = {
   measurementId: "G-SD9GHJMBDD"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
 const USER_ID = "default-user";
 
 // Default daily tasks
-const DEFAULT_TASKS = ["Morning Weigh-In",
-    "2+ Ab Workouts", "30+ Bike/Run", "Night Weigh-in"];
+const DEFAULT_TASKS = [
+  "Morning Weigh-In",
+  "2+ Ab Workouts",
+  "30+ Bike/Run",
+  "Night Weigh-in"
+];
 
 export default function TaskTracker() {
   const today = new Date().toISOString().split("T")[0];
 
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
+  const [ready, setReady] = useState(false);
+
+  // Init Firebase only in browser
+  useEffect(() => {
+    const init = async () => {
+      const { initializeApp } = await import("firebase/app");
+      const { getFirestore, doc, getDoc, setDoc } = await import("firebase/firestore");
+
+      app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+
+      // expose helpers on window scope for later use
+      window.__firebase = { doc, getDoc, setDoc };
+
+      setReady(true);
+    };
+
+    init();
+  }, []);
 
   // Load from Firebase
   useEffect(() => {
+    if (!ready) return;
+
     const loadData = async () => {
+      const { doc, getDoc } = window.__firebase;
+
       const ref = doc(db, "tasks", USER_ID);
       const snap = await getDoc(ref);
+
       if (snap.exists()) setData(snap.data());
       setLoading(false);
     };
+
     loadData();
-  }, []);
+  }, [ready]);
 
   // Save to Firebase
   useEffect(() => {
-    if (loading) return;
+    if (!ready || loading) return;
+
     const save = async () => {
+      const { doc, setDoc } = window.__firebase;
+
       await setDoc(doc(db, "tasks", USER_ID), data);
     };
+
     save();
-  }, [data, loading]);
+  }, [data, ready, loading]);
 
   // Ensure today's tasks exist
   useEffect(() => {
@@ -102,7 +133,7 @@ export default function TaskTracker() {
 
   const days = getLast30Days();
 
-  if (loading) return <div style={{ padding: 20 }}>Loading...</div>;
+  if (!ready || loading) return <div style={{ padding: 20 }}>Loading...</div>;
 
   return (
     <div style={{ padding: 20, maxWidth: 500, margin: "auto" }}>
